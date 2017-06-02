@@ -6,7 +6,6 @@ library(shiny)
 library(MASS)
 library(RColorBrewer)
 library(grid)
-library(gridExtra)
 library(plotly)
 library(shinyBS)
 
@@ -20,7 +19,7 @@ function(input, output, session) {
   #get data from getdata function  
   data.df <- getdata()
   
-  #reactive variables v: ncol, counter, selected
+  #reactive variables v: n.col = numer of classes, counter, selected
   v <<- reactiveValues(counter = 1, n.col = nrow(unique(data.df["label"])), selected = list(), plotno = 0)
   
   #reactive values for df: df, labels, sel
@@ -33,7 +32,6 @@ function(input, output, session) {
   p <- getplotlist( 1, data.df , NULL , NULL)
   diag <- getdiaglist(1, data.df)
   auc <- getauclist(data.df)
-  #print(auc)
   
   # Assign output names for created plots
   for (i in 1:length(p)) {
@@ -68,6 +66,8 @@ function(input, output, session) {
       })
     })
   }
+  
+  
   
   # merge function
   observeEvent(input$merge,
@@ -126,7 +126,7 @@ function(input, output, session) {
                    print(plotname)
                    output[[plotname]] <<- renderPlotly({
                      auc[[n]]
-                      
+                     
                    })
                  })
                }
@@ -141,48 +141,75 @@ function(input, output, session) {
   
   output$selected <- renderPrint({
     d <- event_data("plotly_selected")
-    print(typeof(d))
-    print(df$sel)
+    print(d)
+    
     if (is.null(d)) "Click and drag events (i.e., select/lasso) appear here (double-click to clear)" else d[, c("x","y")]
-    })
+    
+  })
   
+  
+  #get selected points
+  #identify selected points and assign new class
+  #reload graphs
   
   
   observeEvent(event_data("plotly_selected"), { 
     
     # display selected rows
     d <- event_data("plotly_selected")
-    if(!is.null(d)){
-    df$sel <- d[,c("x")]
-    df$sel <- lapply(df$sel, round, digits = 6)
-    #df$Df %>% mutate(x = round(x, 5))
-    xlist <- lapply(df$Df[,"x"], round, digits = 6)
-    print(xlist)
-    print(typeof(xlist))
+    print(d)
+    df$sel <- d[,c("x","y")]
+    df$sel[,c("x")] <- round(df$sel[,c("x")],digits=6)
+    df$sel[,c("y")] <- round(df$sel[,c("y")],digits=6)
+    #df$Df %>% mutate(x = round(x, 5) )
+    #xlist <- lapply(df$Df[,"x"], round, digits = 6)
+    df$Df[,c("x")] <- round(df$Df[,c("x")],digits=6)
+    df$Df[,c("y")] <- round(df$Df[,c("y")],digits=6)
+    print("Selected points")
     print(df$sel)
-    print(df$sel[!df$sel %in% xlist])
-      }
-  
+    print("Data points")
+    print(df$Df)
+    presenceRoster <- data.frame(x=(df$Df$x %in% df$sel$x),y=(df$Df$y %in% df$sel$y))
+    to <- df$Df[(presenceRoster$x & presenceRoster$y),]
+    print("intersection")
+    print(to)
+    
+    lvl <- levels(df$Df$label)
+    levels(df$Df$label) <- c(lvl,as.character(as.integer(lvl[length(lvl)])+1)) 
+    
+    df$Df[(presenceRoster$x & presenceRoster$y),]$label <- levels(df$Df$label)[length(levels(df$Df$label))]
+    print("Altered Data points")
+    print(df$Df)
+    
+    #find class of selected points - if same , else throw error
+    
+   
+    
     # plot with selected lines as brushedpoints
+    
+    
     # not giving same points as selected
     #p <- getplotlist( v$counter, df$Df , df$Df[df$sel, ] , NULL) 
     
   })
   
-  
-  
-  # undo function
-  observeEvent(input$split,
-               { 
-                 if(is.null(event_data("plotly_selected")))
-                   showNotification("Please select datapoints to split.")
+  #split function
+  observeEvent(input$split,{ 
+                   if(!is.null(event_data("plotly_selected")))
+                   {
+                     #create new class
+                     lvl <- levels(df$Df$label)
+                     levels(df$Df$label) <- c(lvl,as.character(as.integer(lvl[length(lvl)])+1)) 
+                     
+                     
+                   }
+                   else
+                     showNotification("Please select datapoints to split.")
                  
-                                 
+                 
                }
                
   )
-  
-  
   
   
   # undo function
@@ -216,28 +243,26 @@ function(input, output, session) {
                  loading$flag <- 1
                  uniq_labels <- unique(df$Df[,ncol(df$labels)])
                  v$n.col <- length(uniq_labels)
-              
+                 
                }
   )
   
   
   
-  #use onclick as follows:
-  #shinyjs::onclick("plot1", print("Any r code"))
-  
+  #plot main graph 
   output$bigplot <- renderPlotly({
     loading$flag <- 0
     coloursvec <- brewer.pal(8, "Dark2")
-    data.df <- getdata()
-    g <- ggplot(data.df, aes(x= x, y= y)) + geom_point(aes(color = label)) + theme_bw()  + theme(axis.title.x=element_blank(), axis.title.y=element_blank(),legend.position='none', axis.ticks = element_blank(), axis.text = element_blank())
+    g <- ggplot(df$Df, aes(x= x, y= y)) + geom_point(aes(color = label)) + theme_bw()  + theme(axis.title.x=element_blank(), axis.title.y=element_blank(),legend.position='none', axis.ticks = element_blank(), axis.text = element_blank())
+    print("render again")
     p <- ggplotly(g, height= 500, width = 500) %>% config(displayModeBar = FALSE, scrollZoom = TRUE, doubleClick= 'reset') %>% layout(dragmode ="lasso")
     
     loading$flag <- 1
     return(p)
     
   }) 
-
-
+  
+  
   
   
   #Printing in grid
@@ -245,92 +270,57 @@ function(input, output, session) {
     loading$flag <- 0
     col.width <- round(12/v$n.col) # Calculate bootstrap column width
     n.row <- v$n.col # calculate number of rows
-    cnter <- 0 # Counter variable
+    cnter <- 0 # Counter variable ------ counter for what?
     
     
-    k <- 1:10
-    n <- v$n.col
-    m1 <- matrix(ncol=n, nrow=n)
-    m1[lower.tri(m1, diag=F)] <- k
-    m1
+    #assigning order of printing plots in triangle
+    n <- v$n.col  #number of classes/catgeories
+    noLowerTriangle <- (n^2-n)/2
+    k <-  1:noLowerTriangle
+    orderMatrix <- matrix(nrow = n, ncol = n)
+    orderMatrix[lower.tri(orderMatrix, diag=FALSE)] <- k
+    order <- c(t(orderMatrix))
+    order <- order[!is.na(order)]
     
-    x <- c(t(m1)) 
-    # x - order of printing plots in triangle
-    x <- x[!is.na(x)]
+    
     
     #'global' variables as counters
     g <- 1 # for lda plot
-    z <- 1 # for roc-auc plot
+    z <- 10 # for roc-auc plot
     
-    numplots <- length(x)
-    v <- n.row
-    #print(v)
-    # Create row with columns
-    rows  <- lapply(1:n.row,function(row.num){
+    
+    # Create fluidRows with columns
+    rows  <- lapply(1:n.row,function(row_num){
       
-      ifelse(row.num == 1,
-             {        
-               cols  <- lapply(1:row.num, function(i) {
-                 print("first time")
-                 plotname <- paste("diag", row.num, sep="")
-                 column(col.width, plotlyOutput(plotname, height = 150, width = 150))
-               })
-               
-               
-              # for auc
-               cols2 <- lapply(1:(n.row- row.num), function(i) {
-                 print(i)
-                 cnter <<- x[numplots]
-                 numplots <<- numplots -1
-                 plotname <- paste("auc", cnter, sep="")
-                 column(col.width, plotlyOutput(plotname, height = 150, width = 150))
-               })
-               
-               v <<- v-1
-               cols <- c(cols, cols2)
-               
-             }
-             ,
-             {       
-               
-               
-               # column of lda plots
-               cols  <- lapply(1:z, function(i) {
-                 # print("g")
-                 # print(g)
-                 # print("z")
-                 # print(z)
-                 
-                 cnter <<- x[g] 
-                 g <<- g+1
-                 #print(cnter)
-                 plotname <- paste("plot", cnter, sep="")
-                 column(col.width, plotlyOutput(plotname, height = 150, width = 150))
-               })
-               
-               z <<- z+1
-               # adding diagonal to cols
-               diagname <- paste("diag", z, sep="")
-               diag <- column(col.width, plotlyOutput(diagname, height = "10%", width = "10%"))
-               cols[[g + 1]] <- diag
-               
-               # column of roc auc plots
-               cols2 <- lapply(1: (n.row- row.num), function(i) {
-                 cnter <<- x[numplots]
-                 numplots <<- numplots -1
-                 plotname <- paste("auc", cnter, sep="")
-                 column(col.width, plotlyOutput(plotname, height = 150, width = 150))
-               })
-               
-               # attach cols and cols2
-               cols <- c(cols, cols2)
-               
-             })
+      #LDA plots
+      if(row_num==1)
+      {
+        lda_cols <- list()
+      }
+      else
+      {
+        lda_cols <- lapply(1:(row_num-1), function(col_num){
+          plotname <- paste("plot", order[g], sep="")
+          g <<- g+1
+          column(col.width, plotlyOutput(plotname, height = 150, width = 150))
+        })
+      }
       
+      #diagonal
+      diagname <- paste("diag", row_num, sep="")
+      diag <- column(col.width, plotlyOutput(diagname, height = "10%", width = "10%"))
       
-      print(cols)
-      print("end")
-      fluidRow( do.call(tagList, cols) )
+      #AUC plot
+      auc_cols <- lapply(1:(n-row_num), function(col_num) {
+        plotname <- paste("auc", order[z], sep="")
+        z <<- z-1
+        column(col.width, plotlyOutput(plotname, height = 150, width = 150))
+      })
+      
+      # attach lda_cols, diag and cols2
+      lda_cols[[length(lda_cols)+1]] <- diag
+      cols <- append(lda_cols,auc_cols)
+      fluidRow( do.call(tagList, cols ) )
     })
     
     uniq_labels <- unique(df$Df[,ncol(df$Df)])
@@ -395,13 +385,6 @@ function(input, output, session) {
     v$plotno <- intersect(which(comb_labels[1,] == v$selected[1]) , which(comb_labels[2,] == v$selected[2]))
     print(v$plotno)
   })
-  
-  # observeEvent(v$plotno, {
-  #   plotname <- paste("plot", v$plotno, sep="")
-  #     toggleClass("plots", "red")
-  #     
-  #   })
-  
   
   # To display bigger plot of hovered plot
   # output$plot <-  renderUI({
